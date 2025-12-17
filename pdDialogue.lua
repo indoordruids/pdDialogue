@@ -6,9 +6,11 @@
 ------------------------------------------------
 
 -- You can find examples and docs at https://github.com/PizzaFuel/pdDialogue
-
+local default_sfx = "assets/audio/sfx/ui/DialogSFX"
 local pd = playdate
 local gfx = pd.graphics
+
+import("dialogs/portrait_loader")
 
 ----------------------------------------------------------------------------
 -- #Section: pdDialogue
@@ -229,7 +231,12 @@ function pdDialogueBox:init(text, width, height, font)
     ]] --
 
     pdDialogueBox.super.init(self)
-    self.speed = 0.5 -- char per frame
+    self.initialized = false
+    self.player = playdate.sound.sampleplayer.new(default_sfx)
+    self.player:setVolume(.5)
+    self.speed = 0.5       -- char per frame
+    self.audio = true
+    self.audio_pitch = 0.0 -- default
     self.padding = 2
     self.width = width
     self.height = height
@@ -366,6 +373,22 @@ function pdDialogueBox:setSpeed(speed)
     self.speed = speed
 end
 
+function pdDialogueBox:getAudio()
+    return self.audio
+end
+
+function pdDialogueBox:setAudio(enabled)
+    self.audio = enabled
+end
+
+function pdDialogueBox:getAudioPitch()
+    return self.audio_pitch
+end
+
+function pdDialogueBox:setAudioPitch(value)
+    self.audio_pitch = value
+end
+
 function pdDialogueBox:getSpeed()
     return self.speed
 end
@@ -393,7 +416,6 @@ function pdDialogueBox:finishLine()
     self.currentChar = #self.pages[self.currentPage]
     self.line_complete = true
     self.dialogue_complete = self.currentPage == #self.pages
-    self:onPageDisplayFinish() -- Call explicit finish callback
     self:onPageComplete()
 end
 
@@ -464,10 +486,6 @@ function pdDialogueBox:onCharAdded(char)
     -- New: Overrideable by user
 end
 
-function pdDialogueBox:onPageDisplayFinish()
-    -- New: Overrideable by user, called when typewriter completes for the page
-end
-
 function pdDialogueBox:onOpen()
     -- Overrideable by user
 end
@@ -512,17 +530,18 @@ function pdDialogueBox:update()
         if currentCharIndex > prevCharIndex then
             local currentText = self.pages[self.currentPage]
             local newChar = currentText:sub(currentCharIndex, currentCharIndex)
+            if self.audio then
+                self.player:play(1, self.audio_pitch)
+            end
             self:onCharAdded(newChar) -- New Callback: Character added
         end
     end
-
     local previous_line_complete = self.line_complete
     local previous_dialogue_complete = self.dialogue_complete
     self.line_complete = self.currentChar == pageLength
     self.dialogue_complete = self.line_complete and self.currentPage == #self.pages
 
     if previous_line_complete ~= self.line_complete then
-        self:onPageDisplayFinish() -- New Callback: Page display finished
         self:onPageComplete()
         dirty = true
     end
@@ -537,12 +556,66 @@ end
 ----------------------------------------------------------------------------
 -- #Section: pdPortraitDialogueBox
 ----------------------------------------------------------------------------
+---@class PortraitDialogueBox
+---@field currentAnimation _AnimationLoop
+---@field idleAnimation _AnimationLoop
+---@field blinkAnimation _AnimationLoop
+---@field speakAnimation _AnimationLoop
 pdPortraitDialogueBox = {}
 class("pdPortraitDialogueBox").extends(pdDialogueBox)
+
+
+function pdPortraitDialogueBox:onCharAdded(char)
+    -- New: Overrideable by user
+    pdPortraitDialogueBox.super:onCharAdded(char)
+end
+
+function pdPortraitDialogueBox:onOpen()
+    pdPortraitDialogueBox.super:onOpen()
+end
+
+function pdPortraitDialogueBox:onPageComplete()
+    pdPortraitDialogueBox.super.onPageComplete()
+    if self.idleAnimation then
+        self.currentAnimation = self.idleAnimation
+    end
+end
+
+function pdPortraitDialogueBox:onNextPage()
+    pdPortraitDialogueBox.super.onNextPage()
+    if self.speakAnimation then
+        self.currentAnimation = self.speakAnimation
+    end
+end
+
+function pdPortraitDialogueBox:onDialogueComplete()
+    pdPortraitDialogueBox.super.onDialogueComplete()
+    if self.idleAnimation then
+        self.currentAnimation = self.idleAnimation
+    end
+end
+
+function pdPortraitDialogueBox:onClose()
+    pdPortraitDialogueBox.super.onClose()
+    if self.idleAnimation then
+        self.currentAnimation = self.idleAnimation
+    end
+end
 
 function pdPortraitDialogueBox:init(name, drawable, text, width, height, font)
     self.name = name
     self.portrait = drawable
+    if self.portrait.default ~= nil then
+        self.idleAnimation = gfx.animation.loop.new(200, { self.portrait.default }, true)
+        if self.portrait.blinking ~= nil then
+            self.blinkAnimation = gfx.animation.loop.new(100, { self.portrait.blinking })
+        end
+        if self.portrait.speaking ~= nil then
+            self.speakAnimation = gfx.animation.loop.new(100, { self.portrait.default, self.portrait.speaking })
+        end
+        self.portrait_width, self.portrait_height = self.portrait.default:getSize()
+    end
+
     if self.portrait.getSize ~= nil then
         self.portrait_width, self.portrait_height = self.portrait:getSize()
     elseif self.portrait.getImage ~= nil then
@@ -554,8 +627,10 @@ function pdPortraitDialogueBox:init(name, drawable, text, width, height, font)
             self.portrait_width, self.portrait_height = self.portrait:image():getSize()
         end
     end
+
     pdDialogueBox.init(self, text, width - self.portrait_width, height, font)
     self:setAlignment(kTextAlignment.left)
+    self.initialized = true
 end
 
 function pdPortraitDialogueBox:setAlignment(alignment)
@@ -686,10 +761,7 @@ pdDialogue.DialogueBox_KeyValueMap = {
         set = function (func) pdDialogue.DialogueBox_Callbacks["onCharAdded"] = func end,
         get = function () return pdDialogue.DialogueBox_Callbacks["onCharAdded"] end
     },
-    onPageDisplayFinish = {
-        set = function (func) pdDialogue.DialogueBox_Callbacks["onPageDisplayFinish"] = func end,
-        get = function () return pdDialogue.DialogueBox_Callbacks["onPageDisplayFinish"] end
-    }
+
 }
 function pdDialogue.DialogueBox:drawBackground(x, y)
     if pdDialogue.DialogueBox_Callbacks["drawBackground"] ~= nil then
@@ -725,12 +797,6 @@ end
 function pdDialogue.DialogueBox:onCharAdded(char)
     if pdDialogue.DialogueBox_Callbacks["onCharAdded"] ~= nil then
         pdDialogue.DialogueBox_Callbacks["onCharAdded"](self, char)
-    end
-end
-
-function pdDialogue.DialogueBox:onPageDisplayFinish()
-    if pdDialogue.DialogueBox_Callbacks["onPageDisplayFinish"] ~= nil then
-        pdDialogue.DialogueBox_Callbacks["onPageDisplayFinish"](self)
     end
 end
 
