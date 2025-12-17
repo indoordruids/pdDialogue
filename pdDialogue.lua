@@ -667,13 +667,15 @@ function pdPortraitDialogueBox:drawPortrait(x, y)
     end
 
     local font = self.font or gfx.getFont()
-    self.portrait:draw(x, y)
+    self.portrait:draw(x, y - self.padding * 4)
+    gfx.setImageDrawMode(gfx.kDrawModeNXOR)
     font:drawTextAligned(
         self.name,
         x + self.portrait_width / 2,
-        y + self.height - font:getHeight() - self.padding,
+        y + self.height - font:getHeight() + self.padding,
         kTextAlignment.center
     )
+    gfx.setImageDrawMode(gfx.kDrawModeCopy)
 end
 
 ----------------------------------------------------------------------------
