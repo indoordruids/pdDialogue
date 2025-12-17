@@ -557,10 +557,9 @@ end
 -- #Section: pdPortraitDialogueBox
 ----------------------------------------------------------------------------
 ---@class PortraitDialogueBox
----@field currentAnimation _AnimationLoop
----@field idleAnimation _AnimationLoop
----@field blinkAnimation _AnimationLoop
----@field speakAnimation _AnimationLoop
+---@field currentAnimation PortraitAnimation
+---@field idleAnimation PortraitAnimation
+---@field speakAnimation PortraitAnimation
 pdPortraitDialogueBox = {}
 class("pdPortraitDialogueBox").extends(pdDialogueBox)
 
@@ -605,15 +604,15 @@ end
 function pdPortraitDialogueBox:init(name, drawable, text, width, height, font)
     self.name = name
     self.portrait = drawable
-    if self.portrait.default ~= nil then
-        self.idleAnimation = gfx.animation.loop.new(200, { self.portrait.default }, true)
-        if self.portrait.blinking ~= nil then
-            self.blinkAnimation = gfx.animation.loop.new(100, { self.portrait.blinking })
+    if self.portrait.idle ~= nil then
+        if self.portrait.blinking then
+            self.idleAnimation = self.portrait.blinking
         end
-        if self.portrait.speaking ~= nil then
-            self.speakAnimation = gfx.animation.loop.new(100, { self.portrait.default, self.portrait.speaking })
+        if self.portrait.speaking then
+            self.speakAnimation = self.portrait.speaking
         end
-        self.portrait_width, self.portrait_height = self.portrait.default:getSize()
+        self.currentAnimation = self.idleAnimation
+        self.portrait_width, self.portrait_height = self.portrait.idle.image:getSize()
     end
 
     if self.portrait.getSize ~= nil then
@@ -667,7 +666,11 @@ function pdPortraitDialogueBox:drawPortrait(x, y)
     end
 
     local font = self.font or gfx.getFont()
-    self.portrait:draw(x, y - self.padding * 4)
+    if self.currentAnimation then
+        self.currentAnimation.animation:draw(x, y - self.padding * 4)
+    else
+        self.portrait:draw(x, y - self.padding * 4)
+    end
     gfx.setImageDrawMode(gfx.kDrawModeNXOR)
     font:drawTextAligned(
         self.name,
